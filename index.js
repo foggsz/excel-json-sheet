@@ -1,1 +1,1 @@
-export *  from './src/excel'
+export  { default } from './src/excel'

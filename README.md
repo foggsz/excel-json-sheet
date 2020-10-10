@@ -29,7 +29,7 @@ excel-json-sheet组件基于sheet.js, 在其基础功能上做了二次封装, �
 | file     | 上传的excel单个文件|  上传的excel单个文件|
 #### 使用示例
 ```javascript
-    import Excel from 'excel-json-sheett'
+    import Excel from 'excel-json-sheet'
     let config = {
         callback:(error,  list)=>{
             if(error){
@@ -55,7 +55,7 @@ excel-json-sheet组件基于sheet.js, 在其基础功能上做了二次封装, �
 
 #### 使用示例
 ```javascript
-    import Excel from 'excel-json-sheett'
+    import Excel from 'excel-json-sheet'
     let jsonData = [{
         sheetName:'妖怪名单', 
         config:{
