@@ -23,7 +23,7 @@ excel-json-sheet组件基于sheet.js, 在其基础功能上做了二次封装, �
 | parseOpt     | object  |  建议不做配置, https://github.com/SheetJS/sheetjs#parsing-options |否 | { sheetRows: 0,  type: 'binary', raw: true,  onlyOneSheet: true } |
 |ruleInstance | Excel.ExcelRules实例对象 | 可继承Excel.ExcelRules，自定义改写校验规则|否|只实例默认规则|
 
-### excelParse方法
+### sheetToJson方法
 | 参数          | 类型                | 说明 |
 | -------------- | ------------------ | --- |
 | file     | 上传的excel单个文件|  上传的excel单个文件|
