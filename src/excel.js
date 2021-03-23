@@ -5,12 +5,44 @@
 import { utils, read, writeFile } from 'xlsx'
 import { helper, ParseError } from './help.js'
 
+/**
+ *
+ * @param {*} sheetItem   表格对象
+ * @param {*} formatConfigList  格式化数组对象 [{column: 'D' ,format: Number}]
+ */
+const formatExcel = function(sheetItem, formatConfigList) {
+  let formatMap = new Map()
+  formatConfigList.reduce((formatMap, cur) => {
+    let column = cur['column']
+    if (!column) {
+      return formatMap
+    }
+    formatMap.set(column, {
+      ...cur
+    })
+    delete formatMap.get(column)['column']
+    return formatMap
+  }, formatMap)
+
+  for (let columnKey in sheetItem) {
+    let enKey = helper.extractEnChar(columnKey)
+    let trimKey = columnKey.trim()
+    if (/[A-Za-z][0-9]+/.test(trimKey) && trimKey !== enKey + '1') {
+      let curFormat = formatMap.get(enKey)
+      if (!curFormat) {
+        continue
+      }
+      curFormat['format'] instanceof Function &&
+        (sheetItem[columnKey].v = curFormat['format'](sheetItem[columnKey].w))
+    }
+  }
+}
 // excel解析校验规则
-class ExcelRules {
+class DuExcelRules {
   constructor(
     rules,
-    parseOpt = Excel.DefaultParseOpt,
-    sheet = Excel.DefaultSheet
+    parseOpt = DuExcel.DefaultParseOpt,
+    sheet = DuExcel.DefaultSheet
   ) {
     const defaultRules = {
       maxRows: null // 最大限制条数
@@ -37,7 +69,7 @@ class ExcelRules {
   maxRows(maxRows) {
     // 最大行数
     // 去除表名  头部
-    if (this.sheet.rows > maxRows) {
+    if (this.sheet.rows - 1 > maxRows) {
       throw new ParseError(`限制最大行${maxRows},实际最大行${this.sheet.rows}`)
     }
   }
@@ -72,7 +104,7 @@ class ExcelRules {
         continue
       }
       if (
-        ExcelRules.prototype.hasOwnProperty(ruleKey) ||
+        DuExcelRules.prototype.hasOwnProperty(ruleKey) ||
         this.hasOwnProperty(ruleKey)
       ) {
         if (this[ruleKey] instanceof Function) {
@@ -84,13 +116,13 @@ class ExcelRules {
   }
 }
 
-class Excel {
+class DuExcel {
   /**
    * @param {object}    options  - 来源 配置数据
    * @param {function(error, data){}}    options.callback - 接收结果的处理函数
    * @param {object}    options.parseOpt -  excel文件解析配置 详见sheet.js parseOpt配置选项
    * @param {object}    options.sheetToJsonOpt  - excel数据转json配置  详见sheet.js sheet_to_json配置选项
-   * @param {instance ExcelRules}  options.ruleInstance -  excel解析自定义校验规则实例
+   * @param {instance DuExcelRules}  options.ruleInstance -  excel解析自定义校验规则实例
    */
 
   constructor(options) {
@@ -102,14 +134,14 @@ class Excel {
     this.callback = callback.bind(this)
     this.sheetToJsonOpt = Object.assign(
       {},
-      Excel.DefaultSheetToJsonOpt,
+      DuExcel.DefaultSheetToJsonOpt,
       sheetToJsonOpt
     )
-    this.parseOpt = Object.assign({}, Excel.DefaultParseOpt, parseOpt)
+    this.parseOpt = Object.assign({}, DuExcel.DefaultParseOpt, parseOpt)
     this.ruleInstance =
-      ruleInstance instanceof ExcelRules
+      ruleInstance instanceof DuExcelRules
         ? ruleInstance
-        : new ExcelRules(rules, parseOpt) // 规则实例，可自定义扩张
+        : new DuExcelRules(rules, parseOpt) // 规则实例，可自定义扩张
     this.data = null
   }
 
@@ -126,7 +158,10 @@ class Excel {
     const allowFileTypes = [
       'xlsx',
       'xls',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/csv',
+      'text/csv',
+      'csv'
     ]
     return allowFileTypes.some(item => {
       return fileType === item
@@ -144,7 +179,7 @@ class Excel {
       headerRange: false,
       range: false
     }
-    // console.log('keys', keys)
+
     for (let key in keys) {
       let item = keys[key]
       let res = helper.extractNumEnChar(item)
@@ -185,6 +220,9 @@ class Excel {
 
   /**
    * @param {file}    file  - excel文件对象
+   * @param {object[]}    formatConfigList  - 每一列格式化数组配置项
+   * @param {string}    formatConfigList[]  - 列名|正则表达式
+   * @param {function }        formatConfigList[].format  - 处理函数
    * @returns { error||null,   list:object[] || null }
    * @returns @param {number}  list[].rows  - 行数
    * @returns @param {number}  list[].cols  - 列数
@@ -193,7 +231,8 @@ class Excel {
    * @returns @param {string[]}  list[].sheetHeader  - 表格第一行
    * @returns @param {object[]}  list[].data  - json数组数据
    */
-  sheetToJson(file) {
+
+  excelParse(file, formatConfigList) {
     const self = this
     // const { type } = file
     try {
@@ -211,15 +250,21 @@ class Excel {
         for (var i = 0; i < length; i++) {
           binary += String.fromCharCode(bytes[i])
         }
+
         let ws = read(binary, self.parseOpt)
         const sheetNames = ws.SheetNames
         let res = []
         for (let name of sheetNames) {
           try {
             let item = ws.Sheets[name]
+
             let validRange = self.getValidRange(item)
             let { headerRange, range } = validRange
             let orginSheet = ws.Sheets[name]
+
+            if (Array.isArray(formatConfigList) && formatConfigList.length) {
+              formatExcel(item, formatConfigList)
+            }
 
             let headerRes = self.getJsonSheetRange(orginSheet, {
               range: headerRange,
@@ -234,7 +279,7 @@ class Excel {
 
             let rangeArr = range.split(':')
             let headerRangeArr = headerRange.split(':')
-            const currentSheet = Object.assign({}, Excel.DefaultSheet)
+            const currentSheet = Object.assign({}, DuExcel.DefaultSheet)
             currentSheet.fileName = file.name
             currentSheet.data = sheetData
 
@@ -265,6 +310,7 @@ class Excel {
           }
         }
         self.data = res
+
         return self.res(null)
       }
       reader.onerror = function(e) {
@@ -281,6 +327,42 @@ class Excel {
     }
   }
 
+  /* @returns wb
+   */
+  getSheetWb(jsonData) {
+    let wb = utils.book_new()
+    for (let item of jsonData) {
+      let { sheetName, config, list } = item
+      sheetName = sheetName || ''
+      config = config || {}
+      let reflectHeader = config.reflectHeader || {}
+      let enHeader = Object.keys(reflectHeader) // 英文头
+      let cnHeader = Object.values(reflectHeader) // 中文头
+      if (enHeader.length === 0) {
+        throw new ParseError('映射头对象不能为空')
+      }
+      const headerOpts = { skipHeader: false, header: cnHeader }
+      // 添加头部
+      const ws = utils.json_to_sheet([], headerOpts)
+      // 添加行数据
+      let rowConfig = {
+        skipHeader: true,
+        origin: -1
+      }
+      for (let row of list) {
+        let filterRow = {}
+        for (let key of enHeader) {
+          filterRow[key] = row[key] || ''
+        }
+        filterRow = [].concat(filterRow)
+        utils.sheet_add_json(ws, filterRow, rowConfig)
+      }
+      utils.book_append_sheet(wb, ws, sheetName)
+    }
+
+    return wb
+  }
+
   /**
    * @param {object[]}  jsonData  - 来源 配置数据
    * @param {string}    jsonData[].sheetName - 表格名
@@ -290,48 +372,27 @@ class Excel {
    * @param {string}    fileName  -  带后缀格式的，解析成功下载的文件名
    * @returns { error||null }
    */
-  jsonToSheet(jsonData, fileName) {
+  jsonToSheet(jsonData, fileName, csvConfig = null) {
     const self = this
+
     try {
       let fileNameArr = fileName.split('.')
       let type = fileNameArr[fileNameArr.length - 1]
+
       if (!this.isAllowFileType(type)) {
-        throw new ParseError('文件名必须以xlsx/xls后缀')
+        throw new ParseError('文件名必须以xlsx|xls|csv结尾')
       }
       if (!(jsonData instanceof Array) || jsonData.length === 0) {
         throw new ParseError('传入的数据格式不正确,必须为json数组')
       }
 
-      let wb = utils.book_new()
+      let wb = this.getSheetWb(jsonData)
 
-      jsonData.map(item => {
-        let { sheetName, config, list } = item
-        sheetName = sheetName || ''
-        config = config || {}
-        let reflectHeader = config.reflectHeader || {}
-        let enHeader = Object.keys(reflectHeader) // 英文头
-        let cnHeader = Object.values(reflectHeader) // 中文头
-        if (enHeader.length === 0) {
-          throw new ParseError('映射头对象不能为空')
-        }
-        const headerOpts = { skipHeader: false, header: cnHeader }
-        // 添加头部
-        const ws = utils.json_to_sheet([], headerOpts)
-        // 添加行数据
-        let rowConfig = {
-          skipHeader: true,
-          origin: -1
-        }
-        for (let row of list) {
-          let filterRow = {}
-          for (let key of enHeader) {
-            filterRow[key] = row[key] || ''
-          }
-          filterRow = [].concat(filterRow)
-          utils.sheet_add_json(ws, filterRow, rowConfig)
-        }
-        utils.book_append_sheet(wb, ws, sheetName)
-      })
+      // 如果是csv文件
+      if (type === 'csv') {
+        csvConfig = csvConfig || {}
+        utils.sheet_to_csv(wb, csvConfig)
+      }
       writeFile(wb, fileName)
       return self.res(null)
     } catch (error) {
@@ -345,7 +406,7 @@ class Excel {
   }
 }
 
-Excel.DefaultSheet = {
+DuExcel.DefaultSheet = {
   cols: 0,
   rows: 0,
   data: null,
@@ -353,15 +414,15 @@ Excel.DefaultSheet = {
   fileName: '',
   sheetHeader: []
 }
-Excel.DefaultSheetToJsonOpt = {
+DuExcel.DefaultSheetToJsonOpt = {
   header: 1
 }
-Excel.DefaultParseOpt = {
+DuExcel.DefaultParseOpt = {
   sheetRows: 0,
   type: 'binary',
-  raw: true,
+  raw: false,
   onlyOneSheet: true // 只解析一个表格
 }
-Excel.ParseError = ParseError
-Excel.ExcelRules = ExcelRules
-export default Excel
+DuExcel.ParseError = ParseError
+DuExcel.DuExcelRules = DuExcelRules
+export default DuExcel
